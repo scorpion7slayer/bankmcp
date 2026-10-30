@@ -10,7 +10,7 @@ import { eb, EnableBankingError } from "./enablebanking.ts";
 import { store } from "./store.ts";
 import { attestOnly, SCOPE_ATTEST, SCOPE_READ, SingleUserProvider } from "./auth.ts";
 import { connectedPage, failedPage, privacyPage, returningPage, setupPage, signedInPage, welcomePage, checkEmailPage, signInFailedPage, statusPage, termsPage } from "./pages.ts";
-import { applyPassword, applySetup, setupAvailable } from "./setup.ts";
+import { applyPassword, applySetup, setupAvailable, setupRefusal } from "./setup.ts";
 import { finishRegistration, pendingEmail, registeredButUnfinished, startRegistration } from "./register.ts";
 import { createServer, VERSION } from "./mcp.ts";
 import { startWatcher } from "./watcher.ts";
@@ -19,6 +19,21 @@ import { attestationEnabled, publicKeyDocument } from "./attestation.ts";
 export interface AppOptions {
   /** Mount the OAuth server and the /mcp endpoint. Off in local (stdio) mode. */
   remote: boolean;
+}
+
+function cookieValue(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined;
+  for (const part of header.split(";")) {
+    const i = part.indexOf("=");
+    if (i === -1) continue;
+    if (part.slice(0, i).trim() !== name) continue;
+    try {
+      return decodeURIComponent(part.slice(i + 1).trim());
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
 }
 
 export function createApp(opts: AppOptions) {
@@ -71,6 +86,41 @@ export function createApp(opts: AppOptions) {
     startWatcher();
   }
 
+  function presentedSetupToken(req: express.Request): string | undefined {
+    const header = req.get("x-setup-token");
+    if (header) return header;
+    const query = req.query.setup_token;
+    if (typeof query === "string" && query) return query;
+    const body = req.body as Record<string, unknown> | undefined;
+    if (body && typeof body.setup_token === "string" && body.setup_token) return body.setup_token;
+    return cookieValue(req.headers.cookie, "setup_token");
+  }
+
+  // A matching token is remembered in an httpOnly cookie so the rest of the
+  // browser setup flow (the forms, and pasting the sign-in link) does not
+  // have to carry the secret in the HTML or in Enable Banking's email.
+  function rememberSetupToken(res: express.Response): void {
+    if (config.localMode || !config.setupToken) return;
+    res.cookie("setup_token", config.setupToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 60 * 1000,
+      secure: config.baseUrl.startsWith("https://"),
+    });
+  }
+
+  /** True when the response is already sent and the handler must stop. */
+  function guardSetup(req: express.Request, res: express.Response): boolean {
+    const reason = setupRefusal(presentedSetupToken(req));
+    if (!reason) {
+      rememberSetupToken(res);
+      return false;
+    }
+    res.status(403).type("html").send(failedPage(reason));
+    return true;
+  }
+
   function notify(text: string): void {
     if (!config.notifyWebhookUrl) return;
     const slack = /hooks\.slack\.com/.test(config.notifyWebhookUrl);
@@ -88,7 +138,10 @@ export function createApp(opts: AppOptions) {
   const setupCsp = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 
   app.get("/", async (req, res) => {
-    if (setupAvailable()) return void res.set("Content-Security-Policy", setupCsp).type("html").send(setupPage({ baseUrl: config.baseUrl, registered: registeredButUnfinished() ?? undefined }));
+    if (setupAvailable()) {
+      if (guardSetup(req, res)) return;
+      return void res.set("Content-Security-Policy", setupCsp).type("html").send(setupPage({ baseUrl: config.baseUrl, registered: registeredButUnfinished() ?? undefined }));
+    }
     const problems = setupProblems();
     if ("welcome" in req.query && !problems.length) {
       // Right after setup: what was checked, and the two things to do next.
@@ -101,6 +154,7 @@ export function createApp(opts: AppOptions) {
   // "Register for me": Enable Banking mails the sign-in link; the link returns to /setup/complete.
   app.post("/setup/register", express.urlencoded({ extended: false, limit: "16kb" }), async (req, res) => {
     if (!setupAvailable()) return void res.status(404).type("html").send(failedPage("Setup is already complete."));
+    if (guardSetup(req, res)) return;
     const body = req.body as Record<string, string | undefined>;
     const result = await startRegistration(body, config.baseUrl);
     if ("error" in result) return void res.status(400).set("Content-Security-Policy", setupCsp).type("html").send(setupPage({ error: result.error, values: { email: body.email, country: body.country }, baseUrl: config.baseUrl }));
@@ -126,16 +180,19 @@ export function createApp(opts: AppOptions) {
   // Local mode: the click on the emailed link lands here. Hosted: the user pastes the link (POST).
   app.get("/setup/complete", async (req, res) => {
     if (!setupAvailable()) return void res.status(404).type("html").send(failedPage("Setup is already complete."));
+    if (guardSetup(req, res)) return;
     const q = req.query as Record<string, string | undefined>;
     await complete({ state: q.state, oobCode: q.oobCode }, res);
   });
   app.post("/setup/complete", express.urlencoded({ extended: false, limit: "16kb" }), async (req, res) => {
     if (!setupAvailable()) return void res.status(404).type("html").send(failedPage("Setup is already complete."));
+    if (guardSetup(req, res)) return;
     await complete({ link: String((req.body as Record<string, string | undefined>).link ?? "") }, res);
   });
 
   app.post("/setup", express.urlencoded({ extended: false, limit: "64kb" }), async (req, res) => {
     if (!setupAvailable()) return void res.status(404).type("html").send(failedPage("Setup is already complete."));
+    if (guardSetup(req, res)) return;
     const body = req.body as Record<string, string | undefined>;
     const registered = registeredButUnfinished();
     const error = registered && !body.app_id ? applyPassword(body) : await applySetup(body);
