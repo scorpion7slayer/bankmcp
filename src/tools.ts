@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { config, isConfigured } from "./config.ts";
-import { eb, EnableBankingError } from "./enablebanking.ts";
+import { eb, EnableBankingError, logSafeDetail, publicEnableBankingError } from "./enablebanking.ts";
 import { pendingAuthIsLive, store, type StoredAccount, type WatchRule } from "./store.ts";
 import {
   daysAgo,
@@ -150,7 +150,10 @@ function guard<A extends unknown[]>(fn: (...args: A) => Promise<ReturnType<typeo
             "open https://enablebanking.com/cp/applications, choose the application, press 'Activate by linking accounts' and log in at your bank when asked. Then ask again.",
         );
       }
-      if (err instanceof EnableBankingError) return fail(`Enable Banking returned ${err.status}: ${err.body.slice(0, 500)}`);
+      if (err instanceof EnableBankingError) {
+        console.log(`[bank ${new Date().toISOString()}] enable banking call failed`, logSafeDetail(err));
+        return fail(publicEnableBankingError(err));
+      }
       return fail(`Error: ${(err as Error).message}`);
     }
   };

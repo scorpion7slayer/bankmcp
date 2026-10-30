@@ -87,7 +87,9 @@ export class EnableBankingError extends Error {
   status: number;
   body: string;
   constructor(status: number, body: string) {
-    super(`Enable Banking API ${status}: ${body}`);
+    // The body stays on `.body` for server-side classification. It is not part of
+    // the message, so a log of the error object does not repeat tokens from it.
+    super(`Enable Banking API ${status}`);
     this.status = status;
     this.body = body;
   }
@@ -99,6 +101,21 @@ export class EnableBankingError extends Error {
   get consentGone(): boolean {
     return this.status === 401 || this.status === 403 || this.status === 410 || /session|consent|expired|revoked/i.test(this.body);
   }
+}
+
+const SECRETISH = /bearer|\btoken\b|eyJ|pem|secret|authorization/i;
+
+/** Safe to show an AI client or a browser. Never includes the upstream body. */
+export function publicEnableBankingError(err: EnableBankingError): string {
+  return `Enable Banking returned ${err.status}.`;
+}
+
+/** Safe to write to the server log. Upstream bodies are omitted; other messages are kept only when they do not look like a token. */
+export function logSafeDetail(err: unknown): string {
+  if (err instanceof EnableBankingError) return `HTTP ${err.status}`;
+  const message = err instanceof Error ? err.message : "request failed";
+  if (SECRETISH.test(message)) return "request failed";
+  return message.slice(0, 200);
 }
 
 // --- JWT ---

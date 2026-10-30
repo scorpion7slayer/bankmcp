@@ -61,6 +61,14 @@ export function redirectAllowed(uri: string): boolean {
   }
 }
 
+function redirectHost(uri: string): string {
+  try {
+    return new URL(uri).host;
+  } catch {
+    return "invalid";
+  }
+}
+
 // Scopes. A token with bank:attest and not bank:read sees only attest_account, for a third party the owner proves an
 // account to. Any other token, including one that asked for no scope at all, gets every tool; the sign-in page says
 // which of the two the owner is granting.
@@ -235,7 +243,7 @@ export class SingleUserProvider implements OAuthServerProvider {
     if (!c) throw fail("unknown authorization code");
     if (c.client_id !== client.client_id) throw fail("code belongs to another client");
     if (c.expires < now()) throw fail("authorization code expired");
-    if (redirectUri && redirectUri !== c.redirect_uri) throw fail(`redirect_uri does not match (${redirectUri} vs ${c.redirect_uri})`);
+    if (redirectUri && redirectUri !== c.redirect_uri) throw fail(`redirect_uri does not match (host ${redirectHost(redirectUri)} vs ${redirectHost(c.redirect_uri)})`);
     if (resource && c.resource && resource.href !== c.resource) throw fail(`resource does not match (${resource.href} vs ${c.resource})`);
     return this.store.update((d) => {
       delete d.oauth.codes[key];

@@ -71,7 +71,12 @@ export const config = {
     if (env.EB_PRIVATE_KEY_PATH) return env.EB_PRIVATE_KEY_PATH;
     return existsSync(keyPath) ? keyPath : "";
   },
-  apiBase: env.EB_API_BASE ?? "https://api.enablebanking.com",
+  // Fixed. An environment override would send the application JWT and account data somewhere else.
+  apiBase: "https://api.enablebanking.com",
+  /** Opens the setup page when the server is not configured by environment. Empty means network setup is closed. */
+  get setupToken(): string {
+    return env.SETUP_TOKEN ?? "";
+  },
   get country(): string {
     return (env.DEFAULT_COUNTRY ?? settings.country ?? "DK").toUpperCase();
   },

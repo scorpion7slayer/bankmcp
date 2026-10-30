@@ -1,10 +1,41 @@
 // First-run setup: takes the application id, the key file and a password,
 // validates them and stores them in the data directory. Only reachable while
 // the server has no working configuration.
-import { createPrivateKey } from "node:crypto";
+import { createPrivateKey, timingSafeEqual } from "node:crypto";
 import { config, looksLikeUuid, saveKeyFile, saveSettings } from "./config.ts";
 import { hashPassword } from "./auth.ts";
 import { checkApplication, EnableBankingError, resetKeyCache, type Application } from "./enablebanking.ts";
+
+export const SETUP_CLOSED =
+  "This server is not configured, and setup over the network is closed. Set EB_APP_ID, EB_PRIVATE_KEY_PATH or EB_PRIVATE_KEY, and ADMIN_PASSWORD_HASH, then restart. Or set SETUP_TOKEN and open this page with that token. Nothing was changed.";
+
+export const SETUP_TOKEN_REQUIRED =
+  "Setup needs SETUP_TOKEN. Open this page as /?setup_token=… or send the X-Setup-Token header. Nothing was changed.";
+
+/** Constant-time compare. A length mismatch still runs a compare, then fails. */
+export function tokensEqual(provided: string, expected: string): boolean {
+  const a = Buffer.from(provided);
+  const b = Buffer.from(expected);
+  const len = Math.max(a.length, b.length, 1);
+  const aa = Buffer.alloc(len);
+  const bb = Buffer.alloc(len);
+  a.copy(aa);
+  b.copy(bb);
+  return timingSafeEqual(aa, bb) && a.length === b.length;
+}
+
+/**
+ * Null when a setup request may proceed.
+ * BANKMCP_LOCAL=1 is always allowed. Otherwise SETUP_TOKEN must be set and presented.
+ * Localhost is not special: trust proxy would let a direct client spoof it.
+ */
+export function setupRefusal(presented: string | undefined): string | null {
+  if (config.localMode) return null;
+  const expected = config.setupToken;
+  if (!expected) return SETUP_CLOSED;
+  if (!tokensEqual(presented ?? "", expected)) return SETUP_TOKEN_REQUIRED;
+  return null;
+}
 
 export interface SetupInput {
   app_id?: string;

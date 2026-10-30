@@ -121,7 +121,12 @@ public address. The server binds every interface by default. When the proxy
 runs on the same machine, set `BIND_HOST=127.0.0.1` so nothing else on the local
 network reaches the login and setup pages.
 
-Open the address. A fresh server shows a setup page.
+On a hosted server, set the Enable Banking application and the admin password
+in the environment so the setup page never opens. The checklist for a Dokploy
+deploy is [SECURITY-DEPLOY.md](SECURITY-DEPLOY.md).
+
+Open the address. A fresh server that is not configured that way shows a setup
+page, or a refusal until `SETUP_TOKEN` is set.
 
 #### 2. Register an Enable Banking application
 
