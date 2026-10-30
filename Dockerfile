@@ -1,4 +1,4 @@
-FROM node:24-alpine
+FROM node:24.22.2-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
 LABEL org.opencontainers.image.title="BankMCP™" \
       org.opencontainers.image.description="Read-only MCP server for your own bank accounts via Enable Banking. Self-hosted, one user." \
       org.opencontainers.image.source="https://github.com/noskillish/bankmcp" \
