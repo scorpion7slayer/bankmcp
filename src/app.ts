@@ -122,9 +122,15 @@ export function createApp(opts: AppOptions) {
   }
 
   function notify(text: string): void {
-    if (!config.notifyWebhookUrl) return;
-    const slack = /hooks\.slack\.com/.test(config.notifyWebhookUrl);
-    fetch(config.notifyWebhookUrl, {
+    const url = config.notifyWebhookUrl;
+    if (!url) return;
+    // Same rule as the watcher: an http webhook would send the alert, including the client IP, in the clear.
+    if (!/^https:\/\//.test(url)) {
+      log("notify skipped: NOTIFY_WEBHOOK_URL must be an https URL");
+      return;
+    }
+    const slack = /hooks\.slack\.com/.test(url);
+    fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(slack ? { text } : { source: config.appName, type: "sign_in", text }),
