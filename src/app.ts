@@ -6,7 +6,7 @@ import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from "@modelconte
 import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { config, isConfigured, setupProblems } from "./config.ts";
-import { eb, EnableBankingError } from "./enablebanking.ts";
+import { eb, EnableBankingError, logSafeDetail, publicEnableBankingError } from "./enablebanking.ts";
 import { store } from "./store.ts";
 import { attestOnly, SCOPE_ATTEST, SCOPE_READ, SingleUserProvider } from "./auth.ts";
 import { connectedPage, failedPage, privacyPage, returningPage, setupPage, signedInPage, welcomePage, checkEmailPage, signInFailedPage, statusPage, termsPage } from "./pages.ts";
@@ -298,8 +298,8 @@ export function createApp(opts: AppOptions) {
       log(`bank connected: ${session.aspsp.name}, ${session.accounts.length} account(s)`);
       res.type("html").send(connectedPage(session));
     } catch (err) {
-      const msg = err instanceof EnableBankingError ? `Enable Banking returned ${err.status}: ${err.body.slice(0, 300)}` : (err as Error).message;
-      log("callback failed", msg);
+      const msg = err instanceof EnableBankingError ? publicEnableBankingError(err) : "The bank connection could not be completed.";
+      log("callback failed", logSafeDetail(err));
       failed(msg);
     }
   });
