@@ -6,7 +6,8 @@
 // fails soft: the manual path on the setup page always remains.
 import { generateKeyPairSync } from "node:crypto";
 
-const CP = process.env.EB_CP_BASE ?? "https://enablebanking.com";
+// Fixed. These hosts are only used by the optional "sign up for me" setup flow.
+const CP = "https://enablebanking.com";
 
 export class ControlPanelError extends Error {
   status: number;
@@ -28,7 +29,7 @@ export interface SignIn {
 
 // The Control Panel lists applications from a per-user profile document, created a moment
 // after a brand-new account first signs in. The Control Panel web app reads it the same way.
-const PROFILES = process.env.EB_PROFILE_BASE ?? "https://firestore.googleapis.com/v1/projects/enablebanking/databases/(default)/documents/users";
+const PROFILES = "https://firestore.googleapis.com/v1/projects/enablebanking/databases/(default)/documents/users";
 
 interface ProfileDoc {
   fields?: { applications?: { arrayValue?: { values?: { stringValue?: string; mapValue?: { fields?: { kid?: { stringValue?: string } } } }[] } } };
