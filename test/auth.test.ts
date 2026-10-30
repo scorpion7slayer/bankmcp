@@ -142,6 +142,42 @@ test("clients may only redirect to allowed hosts", async () => {
   await assert.rejects(async () => provider.clientsStore.registerClient!({ redirect_uris: ["https://claude.ai.evil.example/cb"] }), /not allowed/);
 });
 
+test("a mismatched redirect_uri is logged by host only", async () => {
+  const store = new Store(join(mkdtempSync(join(tmpdir(), "bank-")), "store.json"));
+  const provider = new SingleUserProvider(store);
+  const registered = "https://claude.ai/api/mcp/auth_callback?secret=keep-out";
+  const client = await provider.clientsStore.registerClient!({ redirect_uris: [registered], client_name: "Claude", token_endpoint_auth_method: "none" });
+  const { out, res } = fakeRes();
+  await provider.authorize(client, { codeChallenge: "challenge", redirectUri: registered, state: "xyz", scopes: ["bank:read"] }, res);
+  const requestId = /name="request" value="([^"]+)"/.exec(out.body)?.[1];
+  assert.ok(requestId);
+  const ok = provider.completeLogin(requestId, "correct horse", "1.2.3.4");
+  assert.ok("redirect" in ok);
+  const code = new URL(ok.redirect).searchParams.get("code");
+  assert.ok(code);
+  const lines: string[] = [];
+  const orig = console.log;
+  console.log = (...args: unknown[]) => {
+    lines.push(args.map((a) => String(a)).join(" "));
+  };
+  try {
+    await assert.rejects(
+      () => provider.exchangeAuthorizationCode(client, code, undefined, "https://evil.example/phish?token=sekret"),
+      (err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        assert.match(message, /host evil\.example vs claude\.ai/);
+        assert.doesNotMatch(message, /phish|sekret|keep-out|auth_callback/);
+        return true;
+      },
+    );
+  } finally {
+    console.log = orig;
+  }
+  const logged = lines.join("\n");
+  assert.match(logged, /host evil\.example vs claude\.ai/);
+  assert.doesNotMatch(logged, /phish|sekret|keep-out|auth_callback/);
+});
+
 test("well-known MCP client domains are allowed by default", async () => {
   const { redirectAllowed } = await import("../src/auth.ts");
   for (const u of ["https://claude.ai/api/mcp/auth_callback", "https://chatgpt.com/connector_platform_oauth_redirect", "https://chat.mistral.ai/oauth/callback", "https://cursor.com/oauth/callback", "http://localhost:3456/cb"]) assert.equal(redirectAllowed(u), true, u);
